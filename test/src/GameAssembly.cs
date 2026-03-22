@@ -401,16 +401,6 @@ public static class StructReturnTest
         };
     }
 
-    public static int SimpleMethodForHook(int a, int b)
-    {
-        return a + b;
-    }
-
-    public static SmallStructResult GetSmallResultForHook(int value)
-    {
-        return new SmallStructResult { Value = value };
-    }
-
     public static MediumStructResult GetMediumResultForHook(int code, int value)
     {
         return new MediumStructResult { Code = code, Value = value };

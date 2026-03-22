@@ -650,8 +650,6 @@ Il2Cpp.perform(() => {
 
     // --- Struct return hook tests (Interceptor.replace via .implementation) ---
     // Uses separate ForHook methods to avoid conflicts with invoke tests.
-    // SimpleMethodForHook and GetSmallResultForHook are thunks (too short for
-    // Frida to intercept), so only medium and large struct hooks are tested.
 
     test("Hooked static method returning medium struct works", () => {
         const SRT = Il2Cpp.domain.assembly("GameAssembly").image.class("StructReturnTest");

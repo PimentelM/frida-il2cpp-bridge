@@ -430,13 +430,12 @@ ${this.virtualAddress.isNull() ? `` : ` // 0x${this.relativeVirtualAddress.toStr
         wrap(block: (this: Il2Cpp.Class | Il2Cpp.Object | Il2Cpp.ValueType, ...parameters: Il2Cpp.Parameter.Type[]) => T): NativeCallback<any, any> {
             const startIndex = +!this.isStatic | +Il2Cpp.unityVersionIsBelow201830;
 
-            // On x86_64, structs > 16 bytes use the sret calling convention:
-            // the caller passes a hidden first pointer (rdi) where the callee
-            // writes the return value. Frida 17's NativeCallback mishandles this.
-            // Workaround: declare the sret pointer as an explicit first parameter
-            // and use "pointer" as the return type.
+            // Frida 17's NativeCallback mishandles the x86_64 sret calling convention
+            // for structs > 16 bytes. Workaround: expose the hidden sret pointer as
+            // an explicit first parameter.
             const returnAlias = this.returnType.fridaAlias;
-            const needsSret = Process.arch === "x64" && globalThis.Array.isArray(returnAlias) && this.returnType.class.valueTypeSize > 16;
+            const isLargeStructReturn = globalThis.Array.isArray(returnAlias) && this.returnType.class.valueTypeSize > 16;
+            const needsSret = Process.arch === "x64" && isLargeStructReturn;
             const sretOffset = needsSret ? 1 : 0;
 
             return new NativeCallback(
@@ -454,10 +453,11 @@ ${this.virtualAddress.isNull() ? `` : ` // 0x${this.relativeVirtualAddress.toStr
                     const result = block.call(thisObject, ...parameters);
 
                     if (needsSret) {
-                        const sretPtr = args[0] as NativePointer;
-                        if (result instanceof Il2Cpp.ValueType) {
-                            Memory.copy(sretPtr, result.handle, this.returnType.class.valueTypeSize);
+                        if (!(result instanceof Il2Cpp.ValueType)) {
+                            raise(`method ${this.name} requires a ValueType return for sret, got ${typeof result}`);
                         }
+                        const sretPtr = args[0] as NativePointer;
+                        Memory.copy(sretPtr, result.handle, this.returnType.class.valueTypeSize);
                         return sretPtr;
                     }
 
