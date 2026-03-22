@@ -26,7 +26,7 @@ assembly: .check_UNITY_VERSION	## (test) Create a GameAssembly.so using the give
 	@ make -C "$(UNITY_DIR)/$(UNITY_VERSION)/" assembly
 
 image: .check_UNITY_VERSION	## (test) Build Docker image having a GameAssembly.so created using the given UNITY_VERSION
-	@ docker build --platform linux/amd64 --build-arg UNITY_VERSION=$(UNITY_VERSION) -t $(IMAGE_TAG) test
+	@ docker build --build-arg UNITY_VERSION=$(UNITY_VERSION) -t $(IMAGE_TAG) test
 
 test: dist test/agent/dist test/build/host	## (test) Run tests on each local GameAssembly.so (Linux only)
 	@ test/run

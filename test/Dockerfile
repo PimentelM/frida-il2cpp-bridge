@@ -15,9 +15,20 @@ RUN \
     make -C unity/$UNITY_VERSION -f editor.mk editor
 
 FROM $BASE_IMAGE AS build-host
+ARG TARGETARCH
 
 # libc6:i386 and g++ are only needed for 5.3.5f1...
-RUN dpkg --add-architecture i386 && apt-get update && apt-get --no-install-recommends install -y make clang libc6:i386 g++
+RUN <<EOF
+set -e
+apt-get update
+if [ "$TARGETARCH" = "arm64" ]; then
+    apt-get --no-install-recommends install -y make clang mono-runtime
+else
+    dpkg --add-architecture i386
+    apt-get update
+    apt-get --no-install-recommends install -y make clang libc6:i386 g++
+fi
+EOF
 
 USER ubuntu
 WORKDIR /home/ubuntu
@@ -37,7 +48,7 @@ RUN \
     --mount=src=./unity/build.mk,dst=./unity/build.mk \
     --mount=src=./unity/$UNITY_VERSION/build.mk,dst=./unity/$UNITY_VERSION/build.mk \
     --mount=src=./src/GameAssembly.cs,dst=./src/GameAssembly.cs \
-    make -C unity/$UNITY_VERSION -f build.mk assembly
+    make -C unity/$UNITY_VERSION -f build.mk assembly TARGETARCH=$TARGETARCH
 
 RUN \
     --mount=src=./src/host.c,dst=./src/host.c \
@@ -45,15 +56,20 @@ RUN \
 
 FROM $BASE_IMAGE AS final
 
-RUN apt-get update && apt-get --no-install-recommends install -y xz-utils libc6
+RUN apt-get update && apt-get --no-install-recommends install -y xz-utils curl ca-certificates libc6
 
 WORKDIR /bin
 
 ARG FRIDA_VERSION=17.7.3
-ADD https://github.com/frida/frida/releases/download/$FRIDA_VERSION/frida-server-$FRIDA_VERSION-linux-x86_64.xz .
+ARG TARGETARCH
 RUN <<EOF
-xz -d frida-server-*.xz
-mv frida-server-* frida-server
+set -e
+case "$TARGETARCH" in
+    amd64) FRIDA_ARCH=x86_64 ;;
+    arm64) FRIDA_ARCH=arm64 ;;
+esac
+curl -L -A "" --fail "https://github.com/frida/frida/releases/download/$FRIDA_VERSION/frida-server-$FRIDA_VERSION-linux-$FRIDA_ARCH.xz" -o frida-server.xz
+xz -d frida-server.xz
 chmod +x frida-server
 EOF
 

@@ -4,7 +4,13 @@ MONO_DIR = $(EDITOR_DIR)/Data/Mono
 MONOBL_DIR = $(EDITOR_DIR)/Data/MonoBleedingEdge
 IL2CPP_DIR = $(EDITOR_DIR)/Data/il2cpp
 
+ifeq ($(TARGETARCH),arm64)
+MONO := MONO_PATH=$(MONOBL_DIR)/lib/mono/4.5/Facades mono
+IL2CPP_ARCH := arm64
+else
 MONO := $(MONOBL_DIR)/bin/mono
+IL2CPP_ARCH := x64
+endif
 MCS := $(MONO) $(MONOBL_DIR)/lib/mono/4.5/mcs.exe
 
 LINKER_DESCRIPTORS_DIR := $(IL2CPP_DIR)/LinkerDescriptors
