@@ -109,6 +109,13 @@ namespace Il2Cpp {
 
         /** @internal */
         @lazy
+        get needsSret(): boolean {
+            const returnAlias = this.returnType.fridaAlias;
+            return globalThis.Array.isArray(returnAlias) && this.returnType.class.valueTypeSize > 16;
+        }
+
+        /** @internal */
+        @lazy
         get nativeFunction(): NativeFunction<any, any> {
             return new NativeFunction(this.virtualAddress, this.returnType.fridaAlias, this.fridaSignature as NativeFunctionArgumentType[]);
         }
@@ -427,26 +434,57 @@ ${this.virtualAddress.isNull() ? `` : ` // 0x${this.relativeVirtualAddress.toStr
         }
 
         /** @internal */
-        wrap(block: (this: Il2Cpp.Class | Il2Cpp.Object | Il2Cpp.ValueType, ...parameters: Il2Cpp.Parameter.Type[]) => T): NativeCallback<any, any> {
+        wrap(block: (this: Il2Cpp.Class | Il2Cpp.Object | Il2Cpp.ValueType, ...parameters: Il2Cpp.Parameter.Type[]) => T): NativePointer {
             const startIndex = +!this.isStatic | +Il2Cpp.unityVersionIsBelow201830;
-            return new NativeCallback(
+
+            // Frida 17's NativeCallback mishandles the sret calling convention
+            // for structs > 16 bytes. Workaround: expose the hidden sret pointer as
+            // an explicit first parameter.
+            //
+            // On x86_64, sret is passed in rdi (first arg register), so the explicit
+            // sret parameter naturally matches the ABI — no extra work needed.
+            //
+            // On ARM64, sret is passed in x8 (a dedicated register outside x0-x7).
+            // A small stub captures x8 and shifts it into x0 before calling the
+            // NativeCallback, making both architectures use the same explicit sret
+            // convention.
+            const needsSret = this.needsSret;
+            const sretOffset = needsSret ? 1 : 0;
+
+            const callback = new NativeCallback(
                 (...args: NativeCallbackArgumentValue[]): NativeCallbackReturnValue => {
                     const thisObject = this.isStatic
                         ? this.class
                         : this.class.isValueType
                           ? new Il2Cpp.ValueType(
-                                (args[0] as NativePointer).add(structMethodsRequireObjectInstances() ? Il2Cpp.Object.headerSize : 0),
+                                (args[sretOffset] as NativePointer).add(structMethodsRequireObjectInstances() ? Il2Cpp.Object.headerSize : 0),
                                 this.class.type
                             )
-                          : new Il2Cpp.Object(args[0] as NativePointer);
+                          : new Il2Cpp.Object(args[sretOffset] as NativePointer);
 
-                    const parameters = this.parameters.map((_, i) => fromFridaValue(args[i + startIndex], _.type));
+                    const parameters = this.parameters.map((_, i) => fromFridaValue(args[i + startIndex + sretOffset], _.type));
                     const result = block.call(thisObject, ...parameters);
+
+                    if (needsSret) {
+                        if (!(result instanceof Il2Cpp.ValueType)) {
+                            raise(`method ${this.name} requires a ValueType return for sret, got ${typeof result}`);
+                        }
+                        const sretPtr = args[0] as NativePointer;
+                        Memory.copy(sretPtr, result.handle, this.returnType.class.valueTypeSize);
+                        return sretPtr;
+                    }
+
                     return toFridaValue(result);
                 },
-                this.returnType.fridaAlias,
-                this.fridaSignature
+                needsSret ? "pointer" : this.returnType.fridaAlias,
+                needsSret ? ["pointer" as NativeCallbackArgumentType, ...this.fridaSignature] : this.fridaSignature
             );
+
+            if (needsSret && Process.arch === "arm64") {
+                return makeSretStubArm64(callback, this.fridaSignature.length);
+            }
+
+            return callback;
         }
     }
 
@@ -536,5 +574,48 @@ ${this.virtualAddress.isNull() ? `` : ` // 0x${this.relativeVirtualAddress.toStr
             SecurityMitigations = 0x0400,
             MaxMethodImplVal = 0xffff
         }
+    }
+
+    // prevent GC of NativeCallbacks used by ARM64 sret stubs
+    const sretStubCallbacks: NativePointer[] = [];
+
+    /** @internal
+     * Creates an ARM64 stub that captures the sret pointer from x8 and shifts
+     * it into x0 (first argument position), so the NativeCallback receives it
+     * as an explicit first parameter — matching the x86_64 sret convention.
+     */
+    function makeSretStubArm64(callback: NativeCallback<any, any>, argCount: number): NativePointer {
+        sretStubCallbacks.push(callback);
+        const stub = Memory.alloc(Process.pageSize);
+
+        Memory.patchCode(stub, Process.pageSize, (code: NativePointer) => {
+            const writer = new Arm64Writer(code, { pc: stub });
+
+            // Save x19 (callee-saved, used to hold x8) and lr
+            writer.putStpRegRegRegOffset("x19", "x30", "sp", -16, "pre-adjust");
+
+            // Capture sret pointer from x8
+            writer.putMovRegReg("x19", "x8");
+
+            // Shift existing args right by one: x[n] → x[n+1], from high to low
+            for (let i = Math.min(argCount - 1, 6); i >= 0; i--) {
+                writer.putMovRegReg(`x${i + 1}` as Arm64Register, `x${i}` as Arm64Register);
+            }
+
+            // Place sret pointer as first argument
+            writer.putMovRegReg("x0", "x19");
+
+            // Call the NativeCallback
+            writer.putLdrRegAddress("x9", callback);
+            writer.putBlrReg("x9");
+
+            // Restore x19, lr and return
+            writer.putLdpRegRegRegOffset("x19", "x30", "sp", 16, "post-adjust");
+            writer.putRet();
+
+            writer.flush();
+        });
+
+        return stub;
     }
 }

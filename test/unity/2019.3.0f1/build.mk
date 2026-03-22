@@ -12,7 +12,7 @@ ASSEMBLY_TARGET_CMD = $(IL2CPP) \
 	--libil2cpp-static \
 	--configuration=Release \
 	--platform=Linux \
-	--architecture=x64 \
+	--architecture=$(IL2CPP_ARCH) \
 	--dotnetprofile=unityaot \
 	--cachedirectory="$(@D)/../buildstate" \
 	--generatedcppdir="$(<D)" \
