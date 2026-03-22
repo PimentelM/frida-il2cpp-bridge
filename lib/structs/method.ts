@@ -429,23 +429,42 @@ ${this.virtualAddress.isNull() ? `` : ` // 0x${this.relativeVirtualAddress.toStr
         /** @internal */
         wrap(block: (this: Il2Cpp.Class | Il2Cpp.Object | Il2Cpp.ValueType, ...parameters: Il2Cpp.Parameter.Type[]) => T): NativeCallback<any, any> {
             const startIndex = +!this.isStatic | +Il2Cpp.unityVersionIsBelow201830;
+
+            // On x86_64, structs > 16 bytes use the sret calling convention:
+            // the caller passes a hidden first pointer (rdi) where the callee
+            // writes the return value. Frida 17's NativeCallback mishandles this.
+            // Workaround: declare the sret pointer as an explicit first parameter
+            // and use "pointer" as the return type.
+            const returnAlias = this.returnType.fridaAlias;
+            const needsSret = Process.arch === "x64" && globalThis.Array.isArray(returnAlias) && this.returnType.class.valueTypeSize > 16;
+            const sretOffset = needsSret ? 1 : 0;
+
             return new NativeCallback(
                 (...args: NativeCallbackArgumentValue[]): NativeCallbackReturnValue => {
                     const thisObject = this.isStatic
                         ? this.class
                         : this.class.isValueType
                           ? new Il2Cpp.ValueType(
-                                (args[0] as NativePointer).add(structMethodsRequireObjectInstances() ? Il2Cpp.Object.headerSize : 0),
+                                (args[sretOffset] as NativePointer).add(structMethodsRequireObjectInstances() ? Il2Cpp.Object.headerSize : 0),
                                 this.class.type
                             )
-                          : new Il2Cpp.Object(args[0] as NativePointer);
+                          : new Il2Cpp.Object(args[sretOffset] as NativePointer);
 
-                    const parameters = this.parameters.map((_, i) => fromFridaValue(args[i + startIndex], _.type));
+                    const parameters = this.parameters.map((_, i) => fromFridaValue(args[i + startIndex + sretOffset], _.type));
                     const result = block.call(thisObject, ...parameters);
+
+                    if (needsSret) {
+                        const sretPtr = args[0] as NativePointer;
+                        if (result instanceof Il2Cpp.ValueType) {
+                            Memory.copy(sretPtr, result.handle, this.returnType.class.valueTypeSize);
+                        }
+                        return sretPtr;
+                    }
+
                     return toFridaValue(result);
                 },
-                this.returnType.fridaAlias,
-                this.fridaSignature
+                needsSret ? "pointer" : returnAlias,
+                needsSret ? ["pointer" as NativeCallbackArgumentType, ...this.fridaSignature] : this.fridaSignature
             );
         }
     }

@@ -82,8 +82,8 @@ Il2Cpp.perform(() => {
     });
 
     test("Il2Cpp.Image::classCount", () => {
-        assert(Il2Cpp.domain.assembly("GameAssembly").image.classes.length).is(33);
-        assert(Il2Cpp.domain.assembly("GameAssembly").image.classCount).is(33);
+        assert(Il2Cpp.domain.assembly("GameAssembly").image.classes.length).is(37);
+        assert(Il2Cpp.domain.assembly("GameAssembly").image.classCount).is(37);
     });
 
     test("Il2Cpp.Class::image", () => {
@@ -618,5 +618,75 @@ Il2Cpp.perform(() => {
         assert(() => Il2Cpp.nullable(null as any, Il2Cpp.corlib.class("System.Object")).type.class).throws(
             "Cannot create nullable value type out of a reference type 'System.Object'"
         );
+    });
+    // --- Struct return invoke tests (no hooks) ---
+
+    test("Static method returning primitive can be invoked", () => {
+        const SRT = Il2Cpp.domain.assembly("GameAssembly").image.class("StructReturnTest");
+        assert(SRT.method<number>("SimpleMethod").invoke(3, 4)).is(7);
+    });
+
+    test("Static method returning small struct can be invoked", () => {
+        const SRT = Il2Cpp.domain.assembly("GameAssembly").image.class("StructReturnTest");
+        const result = SRT.method<Il2Cpp.ValueType>("GetSmallResult").invoke(42);
+        assert(result.field<number>("Value").value).is(42);
+    });
+
+    test("Static method returning medium struct can be invoked", () => {
+        const SRT = Il2Cpp.domain.assembly("GameAssembly").image.class("StructReturnTest");
+        const result = SRT.method<Il2Cpp.ValueType>("GetMediumResult").invoke(1, 99);
+        assert(result.field<number>("Code").value).is(1);
+        assert(result.field<number>("Value").value).is(99);
+    });
+
+    test("Static method returning large struct can be invoked", () => {
+        const SRT = Il2Cpp.domain.assembly("GameAssembly").image.class("StructReturnTest");
+        const msg = Il2Cpp.string("hello");
+        const entity = Il2Cpp.corlib.class("System.Object").new();
+        const result = SRT.method<Il2Cpp.ValueType>("GetLargeResult").invoke(1, msg, entity);
+        assert(result.field<number>("Reason").value).is(1);
+        assert(result.field<Il2Cpp.String>("Message").value.content).is("hello");
+    });
+
+    // --- Struct return hook tests (Interceptor.replace via .implementation) ---
+    // Uses separate ForHook methods to avoid conflicts with invoke tests.
+    // SimpleMethodForHook and GetSmallResultForHook are thunks (too short for
+    // Frida to intercept), so only medium and large struct hooks are tested.
+
+    test("Hooked static method returning medium struct works", () => {
+        const SRT = Il2Cpp.domain.assembly("GameAssembly").image.class("StructReturnTest");
+        const method = SRT.method<Il2Cpp.ValueType>("GetMediumResultForHook");
+
+        method.implementation = function (...args) {
+            const result = method.returnType.class.alloc().unbox();
+            result.field("Code").value = (args[0] as number) * 10;
+            result.field("Value").value = (args[1] as number) * 10;
+            return result;
+        };
+
+        const result = method.invoke(1, 99);
+        assert(result.field<number>("Code").value).is(10);
+        assert(result.field<number>("Value").value).is(990);
+        Interceptor.revert(method.virtualAddress);
+    });
+
+    test("Hooked static method returning large struct works (sret)", () => {
+        const SRT = Il2Cpp.domain.assembly("GameAssembly").image.class("StructReturnTest");
+        const method = SRT.method<Il2Cpp.ValueType>("GetLargeResultForHook");
+        const msg = Il2Cpp.string("hooked");
+        const entity = Il2Cpp.corlib.class("System.Object").new();
+
+        method.implementation = function (...args) {
+            const result = method.returnType.class.alloc().unbox();
+            result.field("Reason").value = (args[0] as number) * 10;
+            result.field("Message").value = args[1] as Il2Cpp.String;
+            result.field("Entity").value = args[2] as Il2Cpp.Object;
+            return result;
+        };
+
+        const result = method.invoke(2, msg, entity);
+        assert(result.field<number>("Reason").value).is(20);
+        assert(result.field<Il2Cpp.String>("Message").value.content).is("hooked");
+        Interceptor.revert(method.virtualAddress);
     });
 }).then(() => send({ action: "stop" }));

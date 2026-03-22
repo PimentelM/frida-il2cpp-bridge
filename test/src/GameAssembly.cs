@@ -333,7 +333,7 @@ class NullableTest
 {
     int? n0;
     System.Nullable<int> n1;
-    
+
     public NullableTest(int? n0, System.Nullable<int> n1)
     {
         this.n0 = n0;
@@ -353,5 +353,76 @@ class NullableTest
     static int CoalesceInt(int? a, int? b)
     {
         return a ?? b ?? 777;
+    }
+}
+
+public struct SmallStructResult
+{
+    public int Value;
+}
+
+public struct MediumStructResult
+{
+    public int Code;
+    public int Value;
+}
+
+public struct LargeStructResult
+{
+    public int Reason;
+    public string Message;
+    public object Entity;
+}
+
+public static class StructReturnTest
+{
+    public static int SimpleMethod(int a, int b)
+    {
+        return a + b;
+    }
+
+    public static SmallStructResult GetSmallResult(int value)
+    {
+        return new SmallStructResult { Value = value };
+    }
+
+    public static MediumStructResult GetMediumResult(int code, int value)
+    {
+        return new MediumStructResult { Code = code, Value = value };
+    }
+
+    public static LargeStructResult GetLargeResult(int code, string message, object entity)
+    {
+        return new LargeStructResult
+        {
+            Reason = code,
+            Message = message,
+            Entity = entity
+        };
+    }
+
+    public static int SimpleMethodForHook(int a, int b)
+    {
+        return a + b;
+    }
+
+    public static SmallStructResult GetSmallResultForHook(int value)
+    {
+        return new SmallStructResult { Value = value };
+    }
+
+    public static MediumStructResult GetMediumResultForHook(int code, int value)
+    {
+        return new MediumStructResult { Code = code, Value = value };
+    }
+
+    public static LargeStructResult GetLargeResultForHook(int code, string message, object entity)
+    {
+        return new LargeStructResult
+        {
+            Reason = code,
+            Message = message,
+            Entity = entity
+        };
     }
 }

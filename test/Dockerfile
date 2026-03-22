@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7-labs
 ARG BASE_IMAGE=ubuntu:26.04
 
 FROM $BASE_IMAGE AS unity-editor
@@ -44,7 +45,7 @@ RUN \
 
 FROM $BASE_IMAGE AS final
 
-RUN apt-get update && apt-get --no-install-recommends install -y xz-utils
+RUN apt-get update && apt-get --no-install-recommends install -y xz-utils libc6
 
 WORKDIR /bin
 
